@@ -1,0 +1,54 @@
+
+MHA切换过程:
+	.配置文件检查阶段，这个阶段将会检查整个集群配置文件设置
+	.宕机的master处理，这个阶段包括虚拟IP摘除操作，主机关机等操作
+	.复制dead master和最新slave相差的relay log，并保存到MHA Manager具体目录下
+	.识别含有最新更新的slave
+	.应用差异的中继日志(relay log)到其他slave
+	.应用从master保存的二进制日志事件(binlog events)
+	.提升一个slave为新master
+	.使其他的slave连接新的master进行复制
+
+
+
+MHA在线切换:
+	1.在日常工作下，会需要将现有的主服务器迁移到另外一台服务器上。例如主服务器需要进行硬件升级，主库大表的DDL变更和在线添加索引操作等。MHA提供快速切换和优雅的阻塞写入，这个切换过程只需要0.5~2s 的时间，这段时间内数据是无法写入的。在很多情况下，0.5~2s 的阻塞写入是可以接受的。因此切换主服务器不需要计划分配维护时间窗口。
+
+	2.MHA 在线切换过程如下:
+		1).检测复制设置和确定当前主服务器
+		2).确定新的主服务器
+		3).阻塞写入到当前主服务器
+		4).等待所有从服务器赶上复制
+		5).授予写入到新的主服务器
+		6).重新设置从服务器
+
+		注意:在线切换的时候应用架构需要考虑一下两个问题:
+			.自动识别master和slave的问题(master机器可能会切换)，如果采用了VIP的方式，基本上可以解决这个问题
+			.负载均衡的问题(我们可以定义大概的读写比例，每台机器可承担的负载比例，当有机器离开集群时，需要考虑这个问题)
+
+		#为了保证数据完全一致，在最快的时间内完成切换，MHA的在线切换必须在满足一下条件下才会切换成功，否则会切换失败。
+			.所有slave的IO线程都在运行
+			.所有slave的SQL线程都在运行
+			.所有slave的show slave status\G;的输出中Seconds_Behind_Master参数小于或者等于running_updates_limit秒，如果在切换过程中不指定running_updates_limit，那么默认情况下running_updates_limit为1秒
+			.在master端，通过show processlist输出，没有一个更新花费的时间大于running_updates_limit 秒
+
+		#在线切换的一般步骤操作:
+			.首先，停掉MHA监控
+				./usr/bin/masterha_stop --conf=/etc/masterha/app1.cnf
+
+			.其次，进行在线切换操作(模拟在线切换主库操作，原主库变为slave，提升指定slave位新的主库)
+				./usr/bin/masterha_master_switch --conf=/etc/masterha/app1.cnf --master_state=alive --new_master_host=testDB02 --new_master_port=3306 --orig_master_is_new_slave --running_updates_limit=10000
+
+				.--orig_master_is_new_slave	
+					.将原来master变换成slave，默认MHA下不做上述操作
+
+				.--running_updates_limit
+					.MHA切换时，如果原库执行的写入更新操作花费的时间大于默认1秒，或者新的主库和老的主库间存在主从延时的秒数大于默认1秒，那么MHA进行在线切换时将会失败，加上该参数代表，允许在主从延时的时间小于running_updates_limit内核主库执行写入SQL大于该参数设定的范围内成功在线切换MHA
+
+
+	3.修复宕机的Master
+		通常情况自动切换后，原master可能已经废弃掉，待原master主机修复后，如果数据完整的情况下，可能想把原master重新作为新主库的slave，这时需要借助当时自动切换时刻的MHA日志来完成对原master的修复。
+
+			.grep -i "All other slaves should start replication from" /masterha/app1/app1.log 			（通过这条命令获取到信息后，可以直接在修复后的master上执行change master to操作）
+
+

@@ -1,0 +1,149 @@
+
+一、配置MySQL-Replication
+
+grant replication slave on *.* to 'repl'@'10.96.28.%' identified by '123456';
+flush privileges;
+
+mysqldump -uroot -p  --master-data=2 --single-transaction --default-character-set=utf8 -A -R --triggers  >/root/all_backup_`date +%F`.sql
+
+
+change master to master_host='10.96.28.135',master_port=3306,master_user='repl',master_password='123456',master_log_file='mysql-bin.000003',master_log_pos=1354;
+flush privileges;
+
+
+将每个Slave 设置为:read only：
+mysql -e "set global read_only=1;"
+
+
+创建监控用户:
+grant all privileges on *.* to 'root'@'10.96.28.%' identified by '123456';
+flush privileges;
+
+
+二、安装MHA-Server
+
+MHA yum依赖:
+yum install -y perl-devel perl-CPAN perl-Time-HiRes perl-DBD-MySQL perl-Params-Validate perl-Config-Tiny perl-Log-Dispatch perl-Parallel-ForkManager
+
+
+配置MHA:
+
+[server default]
+manager_log=/masterha/app1/app1.log
+manager_workdir=/masterha/app1
+master_binlog_dir=/masterha/binlog
+master_ip_failover_script=/usr/bin/master_ip_failover
+master_ip_online_change_script=/usr/bin/master_ip_online_change
+password=123456
+ping_interval=1
+remote_workdir=/tmp
+repl_password=123456
+repl_user=repl
+report_script=/usr/bin/send_report
+secondary_check_script=/usr/bin/masterha_secondary_check -s 10.96.28.136 -s 10.96.28.135 --user=root --master_host=testDB01 --master_ip=10.96.28.135 --master_port=3306 
+shutdown_script=""
+ssh_user=root
+user=root
+
+[server1]
+hostname=testDB01
+port=3306
+
+[server2]
+hostname=testDB02
+port=3306
+candidate_master=1
+check_repl_delay=0
+
+[server3]
+hostname=testDB03
+port=3306
+
+
+
+设置relay log 清楚方式(在每个slave上):
+mysql -e  "set global relay_log_purge=0;"
+
+	.设置定期清理relay log 脚本:(mkdir -pv /masterha/log/)
+vim /etc/cron.d/purge_relay_logs
+
+0 4 * * * /usr/bin/purge_relay_logs --user=root --password=123456 --disable_relay_log_purge --port=3306 --workdir=/masterha/ -disable_relay_log_purge>>/masterha/log/purge_relay_logs.log 2>&1
+
+	#手工在所有(slave)上执行一遍
+	ln -sv /tmp/mysql.sock  /var/lib/mysql/mysql.sock
+	ldconfig
+
+	/usr/bin/purge_relay_logs --user=root --host=localhost --password=123456 --disable_relay_log_purge --port=3306 --workdir=/masterha/
+
+
+
+设置mysqlbinlog的环境变量(MHA在切换的过程当中会直接调用mysqlbinlog命令):
+
+ln -s /usr/local/mysql/bin/mysqlbinlog /usr/bin/mysqlbinlog
+ln -s /usr/local/mysql/bin/mysql /usr/bin/mysql
+ldconfig
+
+
+
+
+三、测试MHA的配置是否正确
+1.检测MHA Manager到所有MHA Node的SSH连接状态:
+/usr/bin/masterha_check_ssh --conf=/etc/masterha/app1.cnf
+
+
+2.检测集群状态(检查整个复制环境状况:masterha_check_repl)
+/usr/bin/masterha_check_repl --conf=/etc/masterha/app1.cnf 
+
+
+grant all privileges on *.* to 'root'@'10.96.28.%';
+update mysql.user set password=password("") where user="root" and host="10.96.28.%";
+flush privileges;
+
+
+grant all privileges on *.* to 'root'@'127.0.0.1' identified by '123456';
+flush privileges;
+
+
+3.检测MHA集群当前状态
+/usr/bin/masterha_check_status  --conf=/etc/masterha/app1.cnf
+
+
+4.开启MHA Manager监控
+nohup  /usr/bin/masterha_manager --conf=/etc/masterha/app1.cnf --remove_dead_master_conf --ignore_last_failover< /dev/null >/masterha/logs/manager.log 2>&1 &
+
+
+5.关闭MHA 集群
+/usr/bin/masterha_stop  --conf=/etc/masterha/app1.cnf
+
+
+
+四、配置虚拟VIP
+1.通过脚本管理VIP
+#修改触发故障脚本
+master_ip_failover  		自动脚本
+master_ip_online_change 	手动切换脚本
+
+
+2.自动Failover
+#sysbenc 已经安装完成
+#mha.sh 脚本调试完成 等待测试 masterha_ip_failover
+
+#手动切换需要停止MHA-MANAGER(不然切换会不成功)手动切换命令如下:
+masterha_master_switch --conf=/etc/masterha/app1.cnf --master_state=alive --new_master_host=10.96.28.136 --new_master_port=3306 --orig_master_is_new_slave --running_updates_limit=10000
+
+
+masterha_master_switch --master_state=dead --conf=/etc/masterha/app1.cnf --dead_master_host=testDB01 --dead_master_port=3306 --new_master_host=testDB02 --new_master_port=3306 --ignore_last_failover
+
+
+masterha_master_switch--conf=/etc/masterha/app1.cnf --master_state=dead --dead_master_host=192.168.52.129	--dead_master_port=3306
+masterha_master_switch--conf=/etc/masterha/app1.cnf --master_state=alive --new_master_host=192.168.52.130 	--new_master_port=3306
+
+
+3.自动Failover(模拟MHA 自动Failover需要开启Manager)
+	1.开启MHA Manager监控
+nohup  /usr/bin/masterha_manager --conf=/etc/masterha/app1.cnf --remove_dead_master_conf --ignore_last_failover< /dev/null >/masterha/logs/manager.log 2>&1 &
+
+	sh mha.sh mha_start
+	
+
+
