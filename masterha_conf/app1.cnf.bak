@@ -1,0 +1,36 @@
+[server default]
+manager_log=/masterha/logs/app1.log
+manager_workdir=/masterha/app1
+master_binlog_dir=/data/mysql/logs/
+master_ip_failover_script=/etc/masterha/master_ip_failover
+master_ip_online_change_script=/etc/masterha/master_ip_online_change
+password=123456
+ping_interval=1
+remote_workdir=/tmp
+repl_password=123456
+repl_user=repl
+report_script=/usr/bin/send_report
+secondary_check_script=/usr/bin/masterha_secondary_check -s 10.96.28.136 -s 10.96.28.135 --user=root --master_host=testDB01 --master_ip=10.96.28.135 --master_port=3306
+shutdown_script=""
+ssh_user=root
+user=root
+
+
+[server1]
+hostname=10.96.28.135
+port=3306
+#candidate_master=1
+#check_repl_delay=0
+#master_binlog_dir=/masterha/binlog
+
+[server2]
+hostname=10.96.28.136
+port=3306
+candidate_master=1
+master_binlog_dir=/masterha/binlog
+
+[server3]
+hostname=10.96.28.137
+port=3306
+#candidate_master=1
+master_binlog_dir=/masterha/binlog
