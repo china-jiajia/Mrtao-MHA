@@ -144,6 +144,18 @@ masterha_master_switch--conf=/etc/masterha/app1.cnf --master_state=alive --new_m
 nohup  /usr/bin/masterha_manager --conf=/etc/masterha/app1.cnf --remove_dead_master_conf --ignore_last_failover< /dev/null >/masterha/logs/manager.log 2>&1 &
 
 	sh mha.sh mha_start
-	
+
+
+		.第一次模拟MHA故障切换之时(手动停止old主库的mysql服务模拟)，MHA 会选择指定的slave为新的主库同时添加VIP(先去除old 主库的VIP地址)
+		.第一次切换完成之后，恢复old主库加入到MHA集群当中；如果要把目前的MHA的当前master切换回old 的主库上中继日志(relay log)差异会很大需要借助备份恢复数据
+(数据量小用mysqldump，数据量大用xtrabackup工具)，同时记住my.cnf的配置文件需要调整 存储数据物理文件的目录组好不要存放其他内容(以免使用xtrabackup进行备份的时候，不好进行恢复)；还有如果因为中继日志(relay log)差异较大新master库 在故障时不好切换回old库上，最好修改下MHA的配置文件(app1.cnf)指定另外的slave为新主库的切换对象为宜
+			.第二次如果恢复old 库为新的库需要如下操作
+				.xtrabackup 先备份目前新主库数据到old 主库上进行恢复
+				.手动进行MHA Master切换
+					.masterha_master_switch --conf=/etc/masterha/app1.cnf --master_state=alive --new_master_host=10.96.28.135 --new_master_port=3306 --orig_master_is_new_slave  --running_updates_limit=10000
+				.然后在启动MHA Server
+					.nohup  /usr/bin/masterha_manager --conf=/etc/masterha/app1.cnf --remove_dead_master_conf --ignore_last_failover< /dev/null >/masterha/logs/manager.log 2>&1 &
+
+					.sh mha.sh mha_start
 
 
