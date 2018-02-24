@@ -52,3 +52,10 @@ MHA在线切换:
 			.grep -i "All other slaves should start replication from" /masterha/app1/app1.log 			（通过这条命令获取到信息后，可以直接在修复后的master上执行change master to操作）
 
 
+	4.MHA Manager监控
+		.--remove_dead_master_conf
+			该参数代表发生主从切换后，老的主库的IP将会从配置文件中移除
+		.--ignore_last_failover
+			在缺省情况下，如果MHA检测到连续发生宕机，且两次宕机时间间隔不足8小时的话，则不会进行Failover，之所以这样限制是为了避免ping-pong效应。该参数代表忽略上次MHA触发切换产生的文件，默认情况下，MHA发生切换后将会在/masterha/app1下产生app1.failover.complete文件，下次再次切换的时候如果发现目录下面存在该文件将不允许触发切换，除非在第一次切换后手动 rm  -f /masterha/app1/app1.failover.complete,出于方便考虑，我们每次在启动MHA时会添加--ignore_last_failover参数
+			
+
