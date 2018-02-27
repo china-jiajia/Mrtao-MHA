@@ -1,0 +1,241 @@
+
+一、配置MySQL-Replication
+
+grant replication slave on *.* to 'repl'@'10.96.28.%' identified by '123456';
+flush privileges;
+
+mysqldump -uroot -p  --master-data=2 --single-transaction --default-character-set=utf8 -A -R --triggers  >/root/all_backup_`date +%F`.sql
+
+
+change master to master_host='10.96.28.135',master_port=3306,master_user='repl',master_password='123456',master_log_file='mysql-bin.000003',master_log_pos=1354;
+flush privileges;
+
+
+将每个Slave 设置为:read only：
+mysql -e "set global read_only=1;"
+
+
+创建监控用户:
+grant all privileges on *.* to 'root'@'10.96.28.%' identified by '123456';
+flush privileges;
+
+
+二、安装MHA(Manager-node)-(这里选择源码编译安装会比rpm包安装多谢步骤,也可以选择rpm包安装)
+1.MHA yum依赖安装(所有服务器节点都安装):
+yum install -y perl-devel perl-CPAN perl-Time-HiRes perl-DBD-MySQL perl-Params-Validate perl-Config-Tiny perl-Log-Dispatch perl-Parallel-ForkManager
+
+2.安装MHA Node包
+tar xf mha4mysql-node-0.56.tar.gz
+cd mha4mysql-node-0.56
+
+perl Makefile.PL
+make  && make install && echo $?
+
+#由于源码编译后的一些脚本是存放在系统用户目录(/usr/local/bin/)下面的;需要把它们拷贝到系统目录下面(/usr/bin/),需要拷贝的脚本如下:
+例如: cp /usr/local/bin/apply_diff_relay_logs /usr/bin/
+
+apply_diff_relay_logs
+filter_mysqlbinlog
+purge_relay_logs
+save_binary_logs
+
+
+3.安装MHA Manager包(这里注意MHA最少使用机器三台安装,为了以后切换方便最好也要将其他机器上提前安装好 MHA Manager软件)
+tar xf mha4mysql-manager-0.56.tar.gz 
+cd mha4mysql-manager-0.56
+
+perl Makefile.PL
+make  && make install && echo $?
+
+
+#由于源码编译后的一些脚本是存放在系统用户目录(/usr/local/bin/)下面的;需要把它们拷贝到系统目录下面(/usr/bin/),需要拷贝的脚本如下:
+例如: cp /usr/local/bin/masterha_master_switch /usr/bin/
+
+apply_diff_relay_logs
+filter_mysqlbinlog
+masterha_check_repl
+masterha_check_ssh
+masterha_check_status
+masterha_conf_host
+masterha_manager
+masterha_master_monitor
+masterha_master_switch
+masterha_secondary_check
+masterha_stop
+purge_relay_logs
+save_binary_logs
+
+
+
+4.MHA Manager上添加配置文件
+mkdir -pv /masterha/{app1,binlog,logs}
+mkdir -pv /etc/masterha/
+
+#把MHA Manager包中的原生配置文件拷贝到/etc/masterha/当中(app1.cnf、masterha_default.cnf)
+cp -rf /root/mha4mysql-manager-0.56/samples/conf/* /etc/masterha
+
+#把MHA Manager包中的原生脚本文件拷贝到/etc/masterha/当中(master_ip_failover、master_ip_online_change、power_manager、send_report)这里的脚本需要根据情况做调整。
+cp -rf /root/mha4mysql-manager-0.56/samples/scripts/* /etc/masterha
+
+vim /etc/masterha/app1.cnf
+
+[server default]
+manager_log=/masterha/logs/app1.log
+manager_workdir=/masterha/app1
+master_binlog_dir=/data/mysql/logs/
+master_ip_failover_script=/etc/masterha/master_ip_failover
+master_ip_online_change_script=/etc/masterha/master_ip_online_change
+password=123456
+ping_interval=1
+remote_workdir=/tmp
+repl_password=123456
+repl_user=repl
+report_script=/usr/bin/send_report
+secondary_check_script=/usr/bin/masterha_secondary_check -s 10.96.28.136 -s 10.96.28.135 --user=root --master_host=testDB01 --master_ip=10.96.28.135 --master_port=3306
+shutdown_script=""
+ssh_user=root
+user=root
+
+
+[server1]
+hostname=10.96.28.135
+port=3306
+#candidate_master=1
+#check_repl_delay=0
+#master_binlog_dir=/masterha/binlog
+
+[server2]
+hostname=10.96.28.136
+port=3306
+candidate_master=1
+master_binlog_dir=/masterha/binlog
+
+[server3]
+hostname=10.96.28.137
+port=3306
+#candidate_master=1
+master_binlog_dir=/masterha/binlog
+
+
+
+5.MHA-NODE(MySQL-Slave)节点配置清除relay-log脚本
+
+(1).手工在所有(slave)上执行一遍
+	/usr/bin/purge_relay_logs --user=root --host=localhost --password=123456 --disable_relay_log_purge --port=3306 --workdir=/masterha/
+
+	#这里如果服务器上MySQL的客户端是yum安装的可能需要做如下操作
+	ln -sv /tmp/mysql.sock  /var/lib/mysql/mysql.sock
+	ldconfig
+
+(2).上一步执行没有报错开始添加relay 清楚脚本
+mkdir -pv /root/scripts/
+
+0 4 * * * /bin/bash /root/scripts/purge_relay_log.sh
+
+vim /root/scripts/purge_relay_log.sh
+
+#!/bin/bash
+user=root
+passwd=123456
+port=3306
+host=localhost
+log_dir='/masterha/log'
+work_dir='/masterha'
+purge='/usr/bin/purge_relay_logs'
+
+source /etc/profile
+
+if [ ! -d $log_dir ]
+then
+   mkdir $log_dir -p
+fi
+
+$purge --user=$user --host=$host --password=$passwd --disable_relay_log_purge --port=$port --workdir=$work_dir >> $log_dir/purge_relay_logs.log 2>&1
+
+
+
+
+6.设置mysqlbinlog的环境变量(MHA在切换的过程当中会直接调用mysqlbinlog命令):
+
+ln -s /usr/local/mysql/bin/mysqlbinlog /usr/bin/mysqlbinlog
+ln -s /usr/local/mysql/bin/mysql /usr/bin/mysql
+ldconfig
+
+
+
+
+三、测试MHA的配置是否正确
+1.检测MHA Manager到所有MHA Node的SSH连接状态:
+/usr/bin/masterha_check_ssh --conf=/etc/masterha/app1.cnf
+
+
+2.检测集群状态(检查整个复制环境状况:masterha_check_repl)
+/usr/bin/masterha_check_repl --conf=/etc/masterha/app1.cnf 
+
+
+grant all privileges on *.* to 'root'@'10.96.28.%';
+update mysql.user set password=password("") where user="root" and host="10.96.28.%";
+flush privileges;
+
+
+grant all privileges on *.* to 'root'@'127.0.0.1' identified by '123456';
+flush privileges;
+
+
+3.检测MHA集群当前状态
+/usr/bin/masterha_check_status  --conf=/etc/masterha/app1.cnf
+
+
+4.开启MHA Manager监控
+nohup  /usr/bin/masterha_manager --conf=/etc/masterha/app1.cnf --remove_dead_master_conf --ignore_last_failover< /dev/null >/masterha/logs/manager.log 2>&1 &
+
+
+5.关闭MHA 集群
+/usr/bin/masterha_stop  --conf=/etc/masterha/app1.cnf
+
+
+
+四、配置虚拟VIP
+1.通过脚本管理VIP
+#修改触发故障脚本
+master_ip_failover  		自动脚本
+master_ip_online_change 	手动切换脚本
+
+
+2.自动Failover
+#sysbenc 已经安装完成
+#mha.sh 脚本调试完成 等待测试 masterha_ip_failover
+
+#手动切换需要停止MHA-MANAGER(不然切换会不成功)手动切换命令如下:
+masterha_master_switch --conf=/etc/masterha/app1.cnf --master_state=alive --new_master_host=10.96.28.136 --new_master_port=3306 --orig_master_is_new_slave --running_updates_limit=10000
+
+
+masterha_master_switch --master_state=dead --conf=/etc/masterha/app1.cnf --dead_master_host=testDB01 --dead_master_port=3306 --new_master_host=testDB02 --new_master_port=3306 --ignore_last_failover
+
+
+masterha_master_switch--conf=/etc/masterha/app1.cnf --master_state=dead --dead_master_host=192.168.52.129	--dead_master_port=3306
+masterha_master_switch--conf=/etc/masterha/app1.cnf --master_state=alive --new_master_host=192.168.52.130 	--new_master_port=3306
+
+
+3.自动Failover(模拟MHA 自动Failover需要开启Manager)
+	1.开启MHA Manager监控
+nohup  /usr/bin/masterha_manager --conf=/etc/masterha/app1.cnf --remove_dead_master_conf --ignore_last_failover< /dev/null >/masterha/logs/manager.log 2>&1 &
+
+	sh mha.sh mha_start
+
+
+		.第一次模拟MHA故障切换之时(手动停止old主库的mysql服务模拟)，MHA 会选择指定的slave为新的主库同时添加VIP(先去除old 主库的VIP地址)
+		.第一次切换完成之后，恢复old主库加入到MHA集群当中；如果要把目前的MHA的当前master切换回old 的主库上中继日志(relay log)差异会很大需要借助备份恢复数据
+(数据量小用mysqldump，数据量大用xtrabackup工具)，同时记住my.cnf的配置文件需要调整 存储数据物理文件的目录最好不要存放其他内容(以免使用xtrabackup进行备份的时候，不好进行恢复)；还有如果因为中继日志(relay log)差异较大新master库 在故障时不好切换回old库上，最好修改下MHA的配置文件(app1.cnf)指定另外的slave为新主库的切换对象为宜
+			.第二次如果恢复old 库为新的库需要如下操作
+				.xtrabackup 先备份目前新主库数据到old 主库上进行恢复
+				.手动进行MHA Master切换
+					.masterha_master_switch --conf=/etc/masterha/app1.cnf --master_state=alive --new_master_host=10.96.28.135 --new_master_port=3306 --orig_master_is_new_slave  --running_updates_limit=10000
+				.然后在启动MHA Server
+					.nohup  /usr/bin/masterha_manager --conf=/etc/masterha/app1.cnf --remove_dead_master_conf --ignore_last_failover< /dev/null >/masterha/logs/manager.log 2>&1 &
+
+					.sh mha.sh mha_start
+
+		#之前老的master 为新master的slave状态下，进行master的切换需要把之前老master宕机这段时间,在新master上的binlog追平才能进行正常切换否则会报错！
+
+

@@ -1,0 +1,89 @@
+
+
+一、masterha_master_switch手动Failover方式:
+   # For master failover
+    masterha_master_switch --master_state=dead --global_conf=/etc/masterha_default.cnf --conf=/usr/local/masterha/conf/app1.cnf --dead_master_host=host1
+
+    # For online master switch
+    masterha_master_switch --master_state=alive --global_conf=/etc/masterha_default.cnf --conf=/usr/local/masterha/conf/app1.cnf
+
+
+    例如:
+    masterha_master_switch --conf=/etc/masterha/app1.cnf --master_state=alive --new_master_host=10.96.28.136 --new_master_port=3306 --orig_master_is_new_slave --running_updates_limit=10000
+
+	masterha_master_switch --master_state=dead --conf=/etc/masterha/app1.cnf --dead_master_host=testDB01 --dead_master_port=3306 --new_master_host=testDB02 --new_master_port=3306 --ignore_last_failover
+
+
+	masterha_master_switch--conf=/etc/masterha/app1.cnf --master_state=dead --dead_master_host=192.168.52.129   --dead_master_port=3306
+	masterha_master_switch--conf=/etc/masterha/app1.cnf --master_state=alive --new_master_host=192.168.52.130 	--new_master_port=3306
+
+
+二、masterha_master_switch参数详解:
+	
+	--master_state=dead
+		.强制的参数，参数值为"dead"或者"alive".如果设置为alive模式，masterha_master_switch开始在线主库切换操作。
+
+	--dead_master_host=(hostname)
+		.强制参数，宕机的主库所在的主机名称，--dead_master_ip和--dead_master_port是可选参数，如果这些参数没有设置，--dead_master_ip 就是 --dead_master_host 解析的IP地址。--dead_master_port为3306
+
+	--new_master_host=(hostname)
+		.新主机地址，可选参数，这个参数在明确新的主库的主机，非常有用。(这就意味着不需要让MHA来决定新的主库)。如果不设置此参数，MHA将会利用自动failover的规则来选择新的主库。如果设置--new_master_host，MHA选择此主机为新的主库，如果不能成为主库，MHA将会退出。
+
+	--interactive=(0|1)
+		.如果设置为0，在masterha_master_switch,它自动执行故障转移(非交互式)。这实际上是和masterha_manager的内部运行机制一样，这种非交互式故障转移是有用的，如果已经证实了master死了，想尽快做故障转移。非交互式故障转移也是有用的，如果使用其他现有的主监控软件和要调用的非交互式故障转移命令。典型的例子是masterha_master_switch调用从集群软件像起搏器。
+
+	--ssh_reachable=(0|1|2)
+		.指定master经过ssh是否可达。0:不可达、1:可达、2:未知(默认值)。如果设置为2，此命令内部将会检测通过SSH是否可达master，并且跟踪新SSH状态。如果可达，且设置master_ip_failover_script或者shutdown_script。将会执行"--commandstopssh"。否则，执行 "--command=stop"。另外，如果宕机的master通过SSH可达，failover脚本视图从宕机的master机器上拷贝没有发送的binlog。
+
+	--skip_change_master
+		.如果设置此参数，当发生failover的时候，MHA在应用完不同的relay log退出，忽略CHANGE MASTER 和 START SLAVE操作。所以slaves不会指向新的master。开启此参数，有利于手动的二次检查slave恢复是否成功
+
+	--skip_disable_read_only
+		.设置此参数，MHA将不会在新的主库上执行SET GLOBAL read_only=0; 操作，有利于手动操作
+
+	--last_failover_minute=(minutes)	
+		参考master_manager
+
+	--ignore_last_failover
+		.(参考master_manager)在缺省情况下，如果MHA检测到连续发生宕机，且两次宕机间隔不足8小时的话，则不会进行Failover，之所以这样限制是为了避免ping-pong效应。该参数代表忽略上次MHA触发切换产生的文件，默认情况下，MHA发生切换后会在日志目录，也就是上面我设置的/data产生app1.failover.complete文件，下次再次切换的时候如果发现该目录下存在该文件将不允许触发切换，除非在第一次切换后收到删除该文件，为了方便，这里设置为--ignore_last_failover。
+
+	--wait_on_failover_error=(seconds)
+		.类似master_manager，此参数只用于自动的/非交互式的failover。如果没有设置--interval=0，wait_on_failover_error将会被忽略，在发生错误的时候不会sleep
+
+	--remove_dead_master_conf
+		.参考masterha_manager
+
+	--wait_until_gtid_in_sync=(0|1)
+		.此参数从0.56版本开始可用，如果开启此选项，MHA将会在新的master跳过SET GLOBAL read_only=0;
+
+	--ignore_binlog_server_error
+		.此参数从0.56版本开始可用，如果开启此选项，当执行failover的时，MHA忽略binlog server上任何错误
+
+	#非交互式Failover
+		.如果在masterha_master_switch中设置"--interactive=0",它自动执行故障转移(非交互式)。这实际上是和masterha_manager的内部运行机制一样，这种非交互式故障转移是有用的，如果已经证实了master死了，想尽快故障转移。非交互式故障转移也是有用的，如果使用其他现有的主监控软件和要调用的非交互式故障转移命令软件。典型的例子是masterha_master_switch调用从集群软件想起搏器
+
+	#(在线)切换主库的开关(Scheduled(Online)Master Switch)
+		.有时候可能需要做预定的主切换，即使当前的master正在运行。典型的例子是取代不认损坏的硬件升级主服务器。不能取代一个RAID控制器或增加内存没有停止服务器。在这种情况下，需要分配一个预定的维护时间，必须迁移到不同的服务器的master。
+		.masterha_master_switch命令可以用来运行计划总开关:
+			.masterha_master_switch --master_state=alive --conf=/etc/app1.cnf --new_master_host=host2
+				.--master_state=alive必须设置。调度主开关的程序流与从主故障转移有稍微的不通。例如，不需要关闭主服务器，但需要确保写查询不在主上执行。通过设置ip网上变更脚本，可以控制阻塞当前master不允许写(即drop可写的用户，设置read_only=1,等等)在执行FLUSH TABLES WITH READ LOCK，和如何让写在新master。
+
+		.Online master switch开始只有当所有下列条件得到满足:
+			1.IO threads on all slaves are running  //在所有slave上IO线程运行
+			2.SQL threads on all slaves are running //SQL线程在所有的slave上正常运行
+			3.Seconds_Behind_Master on all slaves are less or equal than --running_udpates_limit seconds //在所有的slaves上Seconds_Behind_Master要小于等于 running_updates_limit seconds
+			4.On master，none of update queries take more than --running_updates_limit seconds in the show processlist output //在主上，没有更新查询操作多于running_updates_limit seconds 在show processlist输出结果上。这些限制的原因是出于安全原因，并尽快切换到新主库。masterha_master_switch需要以下参数切换时主在线。
+
+			--new_master_host=(hostname)
+				.新主机地址，可选参数，这个参数在你明确新的主库的主机，非常有用。(这就意味着你不要让MHA来决定新的主库)。如果不设置此参数，MHA将会利用自动failover的规则来选择新的主库。如果设置--new_master_host，MHA选择此主机为新的主库，如果不能成为主库MHA将会退出。
+
+			--orig_master_is_new_slave
+				.当完成主库切换后，原先的主库将作为现在主库的slave运行。默认:不开启(原先的主库不会加入到新的复制环境中)。如果开启此选项，需要在配置文件中设置repl_password参数，由于当期的Master并不知道新的Master的replication的密码
+
+			--remove_orig_master_conf
+				.如果设置此参数，当成功failover后，MHA manager将会自动删除配置文件中关于dead master的配置选项。
+
+			--skip_lock_all_tables
+				.当在做主库切换的时候,MHA会在原先的主库上执行FLUSH TABLES WITH READ LOCK操作，确保没有更新操作，但是FLUSH TABLES WITH READ LOCK操作是非常耗费资源的，并且可以再原先的主库确定没有更新操作(通过master_ip_online_change_script中kill all clients 操作等)。可以利用此选项避免锁表。
+
+参考博客:http://blog.chinaunix.net/uid-28396214-id-4984777.html

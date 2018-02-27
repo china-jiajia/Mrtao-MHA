@@ -1,0 +1,28 @@
+
+1.使用sysbench做MySQL服务器的性能压测最好是单独选用一台低配的服务器，远程连接到数据上进行压测
+2.安装sysbench之前，最要在机器上也安装上mysql服务 因为sysbench启用的时候回依赖一些MySQL的库文件
+
+一、安装sysbench
+    git clone https://github.com/akopytov/sysbench.git
+
+    ./autogen.sh 
+    ./configure  --with-mysql-includes=/usr/local/mysql/include/ --with-mysql-libs=/usr/local/mysql/lib/
+     make && make install && echo $?
+
+    #编译安装的对应文件路径：
+        /usr/local/bin/sysbench       #sysbench命令目录
+        /usr/local/share/sysbench/    #lua脚本目录
+
+
+    #添加环境变量
+    echo -e '\n#SYSBENCH PATAH\nexport PATH=$PATH:/usr/local/sysbench/bin' >> /etc/profile
+	source /etc/profile
+
+
+二、压测使用脚本
+	
+	(1).测试系统: cpu、memr、memw、fileiop、fileior、fileioc、thread、mutex脚本
+		.system-sysbench.sh
+
+	(2).在线OLTP压测脚本: prepare、sysbench、cleanup脚本
+		.oltp.sh

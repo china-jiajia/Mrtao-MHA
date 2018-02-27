@@ -1,0 +1,149 @@
+[client]
+user = root
+password = 123456
+port = 3306
+socket = /tmp/mysql.sock
+#default-character-set = utf8
+#Here follows entries for some specific programs
+# The MySQL server
+
+[mysqld]
+port = 3306
+user = mysql
+socket = /tmp/mysql.sock
+pid-file = /data/mysql/data/mysql.pid
+basedir = /usr/local/mysql
+datadir = /data/mysql/data
+tmpdir = /data/mysql/tmp
+lower_case_table_names=1
+	lower_case_table_names： 此参数不可以动态修改，必须重启数据库
+	lower_case_table_names = 1  表名存储在磁盘是小写的，但是比较的时候是不区分大小写
+	lower_case_table_names=0  表名存储为给定的大小和比较是区分大小写的 
+	lower_case_table_names=2, 表名存储为给定的大小写但是比较的时候是小写的
+
+explicit_defaults_for_timestamp=true 	#timestamp数据类型的设置
+open_files_limit = 65535
+character_set_server = utf8
+skip-name-resolve 						#禁止域名解析的(当然,也包括主机名)
+max_connections = 200
+max_connect_errors = 100000
+max_allowed_packet = 512M 				#是最大允许传输包的大小，也就是查询出结果后，把结果发送到客户端时，每个网络包的最大的大小。
+max_heap_table_size = 1024M 			#设置MEMORY (HEAP)表可以增长到的最大空间大
+max_length_for_sort_data = 4096 		#文件排序算法(设定值)
+	.mysql有两种文件排序算法（双路排序和单路排序），如果需要排序的列的总大小加上order by列的大小超过了max_length_for_sort_data定义的字节，mysql就会使用双路排序，当任何需要的列甚至不是用order by的列（text.blob的时候),也会使用双路排序，（可以使用substtring() 把这些列转化为可以单路排序的列）。
+
+	.可以通过改变 max_length_for_sort_data变量的值来影响mysql选择的算法。因为单路排序为将要排序的每一行创建了固定的缓冲区，varchar列的最大长度是 max_length_for_sort_data规定的值，而不是排序数据的实际大小。
+
+back_log=100 							#MySQL等待被连接(connections)的堆栈数值
+	.MySQL能有的连接数量。当主要MySQL线程在一个很短时间内得到非常多的连接请求，这就起作用，然后主线程花些时间(尽管很短)检查连接并且启动一个新线程。back_log值指出在MySQL暂时停止回答新请求之前的短时间内多少个请求可以被存在堆栈中。
+	.如果期望在一个短时间内有很多连接，你需要增加它。也就是说，如果MySQL的连接数据达到max_connections时，新来的请求将会被存在堆栈中，以等待某一连接释放资源，该堆栈的数量即back_log，如果等待连接的数量超过back_log，将不被授予连接资源。
+	.另外，这值（back_log）限于您的操作系统对到来的TCP/IP连接的侦听队列的大小。操作系统在这个队列大小上有它自己的限制（可以检查你的OS文档找出这个变量的最大值），试图设定back_log高于你的操作系统的限制将是无效的。
+
+
+interactive_timeout = 600 		#服务器关闭交互式连接前等待活动的秒数.交互式客户端定义为在mysql_real_connect()中使用CLIENT_INTERACTIVE选项的客户端.默认值：28800秒（8小时）
+wait_timeout = 600 		#服务器关闭非交互连接之前等待活动的秒数.在线程启动时,根据全局wait_timeout值或全局interactive_timeout值初始化会话wait_timeout值
+default_storage_engine = InnoDB
+net_buffer_length = 8K 		#net-buffer-length官方的解释就是通信时缓存数据的大小.最小4k,最大16M,默认是1M;msyqldump导出的数据就包括两部分,一部分是DDL(包含建表,建存储,建视图等sql语句),另一部分就是insert了,所有的数据都是生成insert了,所以insert这部分才是mysqldump的最大部分
+
+sort_buffer_size = 2M
+join_buffer_size = 4M
+read_buffer_size = 2M 		#对表进行顺序扫描的请求分配一个读入缓冲区的大小
+read_rnd_buffer_size = 16M	#MySQL的随机读缓冲区大小，当按任意顺序读取行时（列如按照排序顺序）将分配一个随机读取缓冲区
+query_cache_size = 0		#查询缓存
+query_cache_type = 0		#查询缓存状态
+query_cache_limit = 2M 		#指定单个查询能够使用的缓冲区大小，缺省为1M
+query_cache_min_res_unit = 2k 	#查询缓存分配的最小块的大小(字节)
+thread_cache_size = 300 		#服务器线程缓存
+table_open_cache = 2948 		#打开表的高速缓存的大小
+tmp_table_size = 256M			#设置内存临时表的大小值
+
+#*********** Logs related settings ***********
+server-id=1353306
+#binlog-ignore-db=mysql
+binlog_checksum = none 			#主从复制事件校验(默认为NONE不生成checksum，这样可以兼容旧版本的MySQL)
+log-bin = /data/mysql/logs/mysql-bin
+log-bin-index=/data/mysql/logs/mysql-bin.index
+sync_binlog=1
+binlog_format=row
+binlog_cache_size=1m 			#binlog 能够使用的cache 内存大小
+max_binlog_cache_size=512M 		#binlog 能够使用的最大cache 内存大小
+max_binlog_size=512m 			#binlog日志大小设置
+long_query_time = 1
+log_output = FILE 				#将日志存入文件,默认值是'FILE' 
+log_error = /data/mysql/logs/mysql-error.log
+slow_query_log = 1
+slow_query_log_file = /data/mysql/logs/slow_statement.log
+#log_queries_not_using_indexes
+general_log = 1
+general_log_file = /data/mysql/logs/general_statement.log
+expire-logs-days = 14 			#设置自动清理过期binlog日志
+#max_binlog_files=5
+
+#*********** Relay log settings ***********
+#relay log
+relay-log-index=/data/mysql/logs/slave-relay-bin.index
+relay-log=/data/mysql/logs/slave-relay-bin
+skip_slave_start = 1
+max_relay_log_size = 512M
+relay_log_purge = 1
+relay_log_recovery = 1
+sync_master_info=1
+sync_relay_log=1
+sync_relay_log_info=1
+log_slave_updates
+#slave-skip-errors=1032,1053,1062
+relay_log_info_repository = table
+
+#*********** MyISAM Specific options ***********
+key_buffer_size = 32M
+bulk_insert_buffer_size = 32M
+myisam_sort_buffer_size = 64M
+myisam_max_sort_file_size = 2G
+myisam_repair_threads = 1
+#myisam_recover
+
+#*********** INNODB Specific options ***********
+innodb_file_per_table=1 					#配置独立表空间
+transaction-isolation = READ-COMMITTED		#设置隔离级别
+innodb_buffer_pool_size = 1G 				#设置innodb buffer pool大小
+innodb_buffer_pool_instances = 12 			#设置innodb buffer pool个数
+innodb_data_home_dir = /data/mysql/innodb_ts 	#设置innodb共享表空间文件存储路径
+innodb_data_file_path = ibdata1:2048M:autoextend	#设置共享表空间
+innodb_log_buffer_size = 64M		#InnoDB的写操作，将数据写入到内存中的日志缓存中，由于InnoDB在事务提交前，并不将改变的日志写入到磁盘中，因此在大事务中，可以减轻磁盘I/O的压力
+innodb_log_file_size = 512M
+innodb_log_files_in_group = 2
+innodb_log_group_home_dir = /data/mysql/innodb_log
+innodb_flush_log_at_trx_commit = 1
+innodb_max_dirty_pages_pct = 50
+innodb_lock_wait_timeout = 10 				#设置锁等待的时间(默认值是50s)
+innodb_rollback_on_timeout 					#事务超时回滚
+innodb_status_file = 1 						#监控MySQL引擎的文件
+innodb_io_capacity = 1500 					#设置刷新脏页的数量
+innodb_io_capacity_max = 30000 				#设置刷新脏页的最大数量
+innodb_flush_method=O_DIRECT 				#设置innodb数据文件及redo log的打开、刷写模式(fdatasync(默认)
+innodb_open_files = 65535
+
+[mysqldump]
+quick 							#支持较大数据
+max_allowed_packet = 512M 		#是最大允许传输包的大小，也就是查询出结果后，把结果发送到客户端时，每个网络包的最大的大小。
+
+如果mysql配置的内存太小，导致了这些问题，建议把mysql的内存配置高一些，比如2G试试，实际上包设置太大，很容易导致丢包，而包太小，也会导致频繁的收发网络报，影响系统性能，一般都是设置为4096
+
+
+[mysql]
+no-auto-rehash 			#MySQL窗口下不使用命令自动补全功能
+prompt="\u@\h:\p  \R:\m:\s [\d]>"
+# Remove the next comment character if you are not familiar with SQL
+#safe-updates
+
+[myisamchk] 			#进行崩溃恢复Myisam数据表
+key_buffer_size = 32M
+sort_buffer_size = 20M
+read_buffer_size = 2M
+write_buffer_size = 2M
+
+[mysqlhotcopy]
+interactive-timeout 		#服务器关闭交互式连接前等待活动的秒数(默认值为:8小时)
+
+[mysqld_safe]
+open-files-limit = 65535

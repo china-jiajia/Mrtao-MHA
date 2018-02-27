@@ -1,0 +1,48 @@
+
+一、masterha_manager语法:
+
+	Usage:
+	    masterha_manager --global_conf=/etc/masterha_default.cnf
+	    --conf=/usr/local/masterha/conf/app1.cnf
+
+
+二、masterha_manager常用参数详解:
+	
+	--conf=(config file path)
+		.应用或本地范围的配置参数文本，必须指定
+
+	--global-conf=(global config file path)
+		.全局范围的配置参数，默认/etc/master_default.cnf
+
+	--manager_workdir,--workdir
+		.manager 工作的目录，存放 mha manager 产生关联的状态文件
+
+	--masterha_log,--log_output
+		.存放 mha manager 产生的日志文件，如果没有设置，将会使用标准输出，当执行failover，mha manager 忽略此配置，使用标准输出
+
+
+	1.Monitor特殊参数
+
+		--wait_no_monitor_error=(error)	
+			.在监控的过程，当发出错误了，masterha_manager等待wait_no_monitor_error的时间后，退出。如果设置为了0，直接退出，这个好处，是当后台运行master monitor 和failover script的时候，masterha_manager可以在wait_no_monitor_error时间到达之前重启监控
+
+		--ignore_fail_on_start
+			.默认的情况下，当一个或多个从库宕机后，主库监控(不是 failover)进程会停掉，除非ignore_fail_on_start参数开启。
+
+			#NOTE: 可以监控这个参数，如果从库宕机后，masterha_manager会停掉，做从库高可用，切读域名。
+
+	2.Failover指定参数
+		--last_failover_minute=(minutes)	
+			.当最近的一个failover 切换发生在last_failover_minute(默认为8小时)之内，MHA manager将不会再切换。因为它会认为有些问题没有得到解决。如果设置了 --ignore_last_failover参数，参数(--last_failover_minute)将会失效。
+
+		--ignore_last_failover
+			.如果最近failover失败，MHA将不会再次开始failover机制，因为这个问题可能再次发生。常规步骤:手动清理failover 错误文件，此文件一般在manager_workdir/app_name.failover.error文件，然后再启动failover机制。如果设置此参数，MHA将会继续failover 不管上次的failover状态
+
+		--wait_on_failover_error=(seconds)
+			.在failover的过程，当发出了错误，maserha_manager等待wait_on_failover_error的时间后，退出。如果设置为了0，直接退出。这个好处，是当后台运行maser monitor 和failover script的时候，masterha_manager可以在wait_no_failover_error时间到达之前重启监控
+
+		--remove_dead_master_conf
+			.如果设置此参数，当成功failover后，MHA manager将会自动删除配置文件中关于dead master的配置选项
+
+
+参考博客:https://yq.aliyun.com/articles/203831

@@ -1,0 +1,51 @@
+1.添加mysql用户组和用户
+groupadd mysql
+useradd -g mysql -d /usr/local/mysql -s /sbin/nologin -M mysql
+
+
+2.解压安装包和创建目录授权
+tar xf mysql-5.6.39-linux-glibc2.12-x86_64.tar.gz -C /opt/
+
+ln -sv /opt/mysql-5.6.39-linux-glibc2.12-x86_64/ /usr/local/mysql
+ldconfig
+
+mkdir -pv /data/mysql/{logs,data,tmp,innodb_ts,innodb_log}
+
+chown -R mysql.mysql /usr/local/mysql/
+chown -R mysql.mysql /usr/local/mysql
+chown -R mysql.mysql /data
+
+
+
+3.yum安装依赖包和初始化数据库
+yum install -y perl-Module-Install.noarch  libaio libaio-devel
+
+/usr/local/mysql/scripts/mysql_install_db  --user=mysql --basedir=/usr/local/mysql/ --datadir=/data/mysql/data/
+
+/usr/local/mysql/scripts/mysql_install_db  --user=mysql --basedir=/usr/local/mysql/ --datadir=/data/mysql/data/
+
+
+cp /usr/local/mysql/support-files/mysql.server  /etc/init.d/mysqld
+
+/etc/init.d/mysqld start
+
+
+
+4.配置数据库用户信息和配置MySQL密码
+(1).进入mysql删除一些不需要用的用户
+use mysql;
+delete from user where user='';
+delete from user where host!='localhost';
+drop user 'root'@'::1';
+
+
+(2).创建密码
+#MySQL内部执行命令
+UPDATE user SET Password=PASSWORD('123456') where USER='root';
+
+#MySQL外部执行命令
+mysqladmin -uroot password newpassword
+
+(3).忘记密码
+/usr/local/mysql/bin/mysqld_safe --skip-grant-tables &
+UPDATE user SET Password=PASSWORD('123456') where USER='root';
