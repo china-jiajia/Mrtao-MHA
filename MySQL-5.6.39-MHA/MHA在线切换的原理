@@ -1,0 +1,62 @@
+
+MHA在线切换的原理
+
+1. 检查当前的配置信息及主从服务器的信息
+	包括读取MHA的配置文件/etc/masterha/app1.cnf及检查当前slave的健康状态
+
+2. 阻止对当前master的更新
+
+	主要通过如下步骤：
+
+	1.等待1.5s（$time_until_kill_threads*100ms），等待当前连接断开。
+	2.执行read_only=1，阻止新的DML操作
+	3.等待0.5s，等待当前DML操作完成。
+	4.kill掉所有连接。
+	5.FLUSH NO_WRITE_TO_BINLOG TABLES
+	6.FLUSH TABLES WITH READ LOCK
+
+3. 等待新master执行完所有的relay log
+
+	Waiting to execute all relay logs on 192.168.244.20(192.168.244.20:3306)..
+
+4. 将新master的read_only设置为off，并添加VIP
+
+5. slave切换到新master上。
+	1.等待slave（192.168.244.30）应用完原主从复制产生的relay log，然后执行change master操作切换到新master上。
+	2.释放原master上加的锁。
+	3.因masterha_master_switch命令行中带有--orig_master_is_new_slave参数，故原master也切换为新master的从。
+
+6. 清理新master的相关信息。
+	主要是执行了reset slave all操作，清除之前的复制信息。
+	MHA在执行在线切换之前，会判断当前的主从复制信息，只有满足了以下条件，才能执行切换动作(MHA在线切换需满足的条件)：
+		1. 所有SLAVE的IO线程和SQL线程都在运行。
+		2. 所有slave的Seconds_Behind_Master小于或等于running_updates_limit的值，该参数如果没有显示指定的话，则默认为1s
+		3. 在master上，通过show processlist输出，没有一个DML操作的时间大于running_updates_limit的值。
+	
+	在线切换时，打开general log，各个服务器的操作信息
+
+注：在执行masterha_master_switch命令时，会有两次确认操作
+
+	1. It is better to execute FLUSH NO_WRITE_TO_BINLOG TABLES on the master before switching. Is it ok to execute on 192.168.244.10(192.168.244.10:3306)? (YES/no):
+	2. Starting master switch from 192.168.244.10(192.168.244.10:3306) to 192.168.244.20(192.168.244.20:3306)? (yes/NO):
+
+	以下输出中间都有两次空白，其中第一次空白之前的输出对应第一次确认之前，第二次之前的输出对应第二次确认之前。原master 192.168.244.10
+
+
+#MHA在线切换的大概过程：
+1）检测复制设置和确定当前主服务器
+2）确定新的主服务器
+3）阻塞写入到当前主服务器
+4）等待所有从服务器赶上复制
+5）授予写入到新的主服务器
+6）重新设置从服务器
+
+#注意，在线切换的时候应用架构需要考虑以下两个问题：
+1）自动识别master和slave的问题（master的机器可能会切换），如果采用了vip的方式，基本可以解决这个问题。
+2）负载均衡的问题（可以定义大概的读写比例，每台机器可承担的负载比例，当有机器离开集群时，需要考虑这个问题）
+
+#为了保证数据完全一致性，在最快的时间内完成切换，MHA的在线切换必须满足以下条件才会切换成功，否则会切换失败。
+1）所有slave的IO线程都在运行
+2）所有slave的SQL线程都在运行
+3）所有的show slave status的输出中Seconds_Behind_Master参数小于或者等于running_updates_limit秒，如果在切换过程中不指定running_updates_limit,那么默认情况下running_updates_limit为1秒。
+4）在master端，通过show processlist输出，没有一个更新花费的时间大于running_updates_limit秒。
